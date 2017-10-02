@@ -93,3 +93,19 @@ class Classifier(nn.Module):
             )
             d_out = args.d
         self.out = nn.Linear(d_out, nclasses)
+
+    # TODO: fix this part
+    def forward(self, inputA, inputB):
+        if self.args.cnn:
+            input = input.t()
+        emb = self.emb_layer(input)
+        emb = self.drop(emb)
+
+        if self.args.cnn:
+            output = self.encoder(emb)
+        else:
+            output, hidden = self.encoder(emb)
+            output = output[-1]
+
+        output = self.drop(output)
+        return self.out(output)

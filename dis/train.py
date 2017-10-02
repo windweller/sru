@@ -31,9 +31,10 @@ parser.add_argument("--lstm", action='store_true', help="whether to use lstm")
 parser.add_argument("--dev", action='store_true', help="whether to only evaluate the model")
 parser.add_argument("--dataset", type=str, default="mr", help="which dataset")
 parser.add_argument("--path", type=str, required=True, help="path to corpus directory")
-parser.add_argument("--batch_size", "--batch", type=int, default=32)
+parser.add_argument("--batch_size", "--batch", type=int, default=200)
 parser.add_argument("--seed", type=int, default=123)
 parser.add_argument("--print_every", type=int, default=100)
+parser.add_argument("--max_seq_len", type=int, default=50)
 parser.add_argument("--restore_epoch", type=int, default=0)
 parser.add_argument("--epochs", type=int, default=10)
 parser.add_argument("--emb_dim", type=int, default=300)
@@ -137,15 +138,17 @@ def pair_iter(q, batch_size, inp_len, query_len):
 
 def validate(model, q_valid):
     # this is also used for test
+    model.eval()
     pass
 
-
-def train(model, optimizer, q_train, q_valid, q_test):
+def train(model, optimizer, criterion, q_train, q_valid, q_test):
     tic = time.time()
     num_params = sum(map(lambda t: np.prod(t.size()), params))
 
     toc = time.time()
     logging.info("Number of params: %d (retreival took %f secs)" % (num_params, toc - tic))
+
+    model.train()
 
     lr = args.lr
     epoch = args.restore_epoch
@@ -163,12 +166,25 @@ def train(model, optimizer, q_train, q_valid, q_test):
         ## Train
         epoch_tic = time.time()
         for seqA_tokens, seqA_mask, seqB_tokens, \
-            seqB_mask, labels in pair_iter(q_train, self.flags.batch_size, self.max_seq_len, self.max_seq_len):
+            seqB_mask, labels in pair_iter(q_train, args.batch_size, args.max_seq_len, args.max_seq_len):
+            # Note: mask is not being used because SRU does not support it
+            # however, normal LSTM does support via torch.nn.utils.rnn.pack_padded_sequence
             # Get a batch and make a step.
             tic = time.time()
 
-            logits, grad_norm, cost, param_norm, seqA_rep = self.optimize(session, seqA_tokens, seqA_mask,
-                                                                          seqB_tokens, seqB_mask, labels)
+            model.zero_grad()
+
+            seqA_tokens_var, seqB_tokens_var = Variable(seqA_tokens), Variable(seqB_tokens)
+            labels_var = Variable(labels)
+
+            logits = model(seqA_tokens_var, seqB_tokens_var)
+
+            loss = criterion(logits, labels_var)
+            loss.backward()
+            optimizer.step()
+
+            # logits, grad_norm, cost, param_norm, seqA_rep = self.optimize(session, seqA_tokens_var,
+            #                                                               seqB_tokens, seqB_mask, labels)
 
             accu = np.mean(np.argmax(logits, axis=1) == labels)
 
@@ -296,6 +312,8 @@ if __name__ == '__main__':
         embeds
     )
 
+    criterion = nn.CrossEntropyLoss()
+
     # construct your full model
     model = Classifier(args, emb_layer, label_size).cuda()
     need_grad = lambda x: x.requires_grad
@@ -316,4 +334,4 @@ if __name__ == '__main__':
         with open(pkl_val_name, "rb") as f:
             q_valid = pickle.load(f)
         # start training cycle (use adam)
-        train(model, optimizer, q_train, q_valid, q_test)
+        train(model, optimizer, criterion, q_train, q_valid, q_test)
