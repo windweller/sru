@@ -3,6 +3,10 @@ import sys
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import logging
+import cuda_functional as MF
+
+logger = logging.getLogger(__name__)
 
 def deep_iter(x):
     if isinstance(x, list) or isinstance(x, tuple):
@@ -13,7 +17,6 @@ def deep_iter(x):
         yield x
 
 class CNN_Text(nn.Module):
-
     def __init__(self, n_in, widths=[3,4,5], filters=100):
         super(CNN_Text,self).__init__()
         Ci = 1
@@ -29,27 +32,11 @@ class CNN_Text(nn.Module):
         x = torch.cat(x, 1)
         return x
 
-
 class EmbeddingLayer(nn.Module):
-    def __init__(self, n_d, words, embs=None, fix_emb=True, oov='<oov>', pad='<pad>', normalize=True):
+    def __init__(self, n_d, vocab, embs, fix_emb=True, oov='<unk>', pad='<pad>', normalize=True):
         super(EmbeddingLayer, self).__init__()
-        word2id = {}
-        if embs is not None:
-            embwords, embvecs = embs
-            for word in embwords:
-                assert word not in word2id, "Duplicate words in pre-trained embeddings"
-                word2id[word] = len(word2id)
-
-            sys.stdout.write("{} pre-trained word embeddings loaded.\n".format(len(word2id)))
-            if n_d != len(embvecs[0]):
-                sys.stdout.write("[WARNING] n_d ({}) != word vector size ({}). Use {} for embeddings.\n".format(
-                    n_d, len(embvecs[0]), len(embvecs[0])
-                ))
-                n_d = len(embvecs[0])
-
-        for w in deep_iter(words):
-            if w not in word2id:
-                word2id[w] = len(word2id)
+        # word to id
+        word2id = vocab  # word2id is a dict, which is the vocab file
 
         if oov not in word2id:
             word2id[oov] = len(word2id)
@@ -64,10 +51,8 @@ class EmbeddingLayer(nn.Module):
         self.embedding = nn.Embedding(self.n_V, n_d)
         self.embedding.weight.data.uniform_(-0.25, 0.25)
 
-        if embs is not None:
-            weight  = self.embedding.weight
-            weight.data[:len(embwords)].copy_(torch.from_numpy(embvecs))
-            sys.stdout.write("embedding shape: {}\n".format(weight.size()))
+        self.embedding.weight.data.copy_(torch.from_numpy(embs))
+        logger.info("loaded embedding into Torch")
 
         if normalize:
             weight = self.embedding.weight
@@ -82,3 +67,29 @@ class EmbeddingLayer(nn.Module):
     def forward(self, input):
         return self.embedding(input)
 
+
+class Classifier(nn.Module):
+    def __init__(self, args, emb_layer, nclasses=2):
+        super(Classifier, self).__init__()
+        self.args = args
+        self.drop = nn.Dropout(args.dropout)
+        self.emb_layer = emb_layer
+        if args.lstm:
+            self.encoder = nn.LSTM(
+                emb_layer.n_d,
+                args.d,
+                args.depth,
+                dropout=args.dropout,
+            )
+            d_out = args.d
+        else:
+            self.encoder = MF.SRU(
+                emb_layer.n_d,
+                args.d,
+                args.depth,
+                dropout=args.dropout,
+                use_tanh=1,
+                bidirectional=True
+            )
+            d_out = args.d
+        self.out = nn.Linear(d_out, nclasses)
