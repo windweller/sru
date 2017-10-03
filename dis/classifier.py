@@ -92,20 +92,24 @@ class Classifier(nn.Module):
                 bidirectional=True
             )
             d_out = args.d
-        self.out = nn.Linear(d_out, nclasses)
+        self.out_proj = nn.Linear(d_out, nclasses)
 
     # TODO: fix this part
-    def forward(self, inputA, inputB):
-        if self.args.cnn:
-            input = input.t()
-        emb = self.emb_layer(input)
-        emb = self.drop(emb)
+    def forward(self, inputA, inputB, feature_dropout=False):
+        embA = self.emb_layer(inputA)
+        embA = self.drop(embA)
 
-        if self.args.cnn:
-            output = self.encoder(emb)
-        else:
-            output, hidden = self.encoder(emb)
-            output = output[-1]
+        embB = self.emb_layer(inputB)
+        embB = self.drop(embB)
 
-        output = self.drop(output)
-        return self.out(output)
+        outputA, hiddenA = self.encoder(embA)  # outputA is a list of (batch_size, hidden_dim), length is time
+        outputA = outputA[-1]
+        # TODO: temporal max pooling here...
+        emb = torch.max(sent_output, 0)[0].squeeze(0)
+
+        outputB, hiddenB = self.encoder(embB)
+        outputB = outputB[-1]
+
+        features = torch.cat((outputA, v, torch.abs(u - v), u * v), 1)
+
+        return self.out_proj(features)
