@@ -98,7 +98,7 @@ class Classifier(nn.Module):
         self.out_proj = nn.Linear(d_out, nclasses)
 
     def forward(self, inputA, inputB):
-        embA = self.emb_layer(inputA)
+        embA = self.emb_layer(inputA)  # this is where embed happens
         embA = self.drop(embA)
 
         embB = self.emb_layer(inputB)
