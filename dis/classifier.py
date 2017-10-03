@@ -113,3 +113,18 @@ class Classifier(nn.Module):
         features = torch.cat((outputA, v, torch.abs(u - v), u * v), 1)
 
         return self.out_proj(features)
+
+if __name__ == '__main__':
+    # test SRU
+    encoder = MF.SRU(
+        input_size=5,
+        hidden_size=5,
+        num_layers=2,
+        dropout=0.5,
+        use_tanh=1,
+        bidirectional=True
+    )
+
+    x = torch.randn([2, 3, 5])
+
+    output, hidden = encoder(x)
