@@ -125,6 +125,12 @@ if __name__ == '__main__':
         bidirectional=True
     )
 
-    x = torch.randn([2, 3, 5])
+    x = torch.randn([3, 10, 5])
 
     output, hidden = encoder(x)
+    # output is (length, batch size, hidden size * number of directions)
+    # hidden is (layers, batch size, hidden size * number of directions)
+
+    # new output is [length, batch size, hidden size * number of directions]
+    # with the size of layers
+    import IPython; IPython.embed()

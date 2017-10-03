@@ -546,14 +546,17 @@ class SRU(nn.Module):
             c0 = [ x.squeeze(0) for x in c0.chunk(self.depth, 0) ]
 
         prevx = input
+        lsth = []
         lstc = []
         for i, rnn in enumerate(self.rnn_lst):
             h, c = rnn(prevx, c0[i])
             prevx = h
             lstc.append(c)
+            lsth.append(h)
 
         if return_hidden:
-            return prevx, torch.stack(lstc)
+            # return prevx, torch.stack(lstc)
+            return lsth, torch.stack(lstc)
         else:
             return prevx
 
