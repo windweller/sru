@@ -78,9 +78,6 @@ logging.basicConfig(format='[%(asctime)s] %(levelname)s: %(message)s',
                     datefmt='%m/%d/%Y %I:%M:%S %p', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# print parameters passed, and all parameters
-logger.info('\ntogrep : {0}\n'.format(sys.argv[1:]))
-logger.info(args)
 
 """
 Vocab-related config
@@ -308,7 +305,7 @@ def train(model, optimizer, criterion, q_train, q_valid, q_test):
 
             if current_step % args.print_every == 0:
                 # , grad_norm, param_norm
-                logging.info(
+                logger.info(
                     'epoch %d, iter %d, cost %f, exp_cost %f, accuracy %f, batch time %f' %
                     (epoch, current_step, cost, exp_cost, accu, iter_time))
 
@@ -320,7 +317,7 @@ def train(model, optimizer, criterion, q_train, q_valid, q_test):
         ## Validate
         valid_cost, valid_accu = validate(model, q_valid, args.dev)
 
-        logging.info("Epoch %d Validation cost: %f validation accu: %f epoch time: %f" % (epoch, valid_cost,
+        logger.info("Epoch %d Validation cost: %f validation accu: %f epoch time: %f" % (epoch, valid_cost,
                                                                                           valid_accu,
                                                                                           epoch_toc - epoch_tic))
 
@@ -334,10 +331,10 @@ def train(model, optimizer, criterion, q_train, q_valid, q_test):
             optimizer.param_groups[0]['lr'] = optimizer.param_groups[0]['lr'] * args.lr_decay if epoch > 1 \
                                               else optimizer.param_groups[0]['lr']
 
-            print('Annealing learning rate at epoch {} to {}'.format(epoch, optimizer.param_groups[0]['lr']))
+            logger.info('Annealing learning rate at epoch {} to {}'.format(epoch, optimizer.param_groups[0]['lr']))
             triggered_stop += 1
 
-            logging.info("validation cost trigger: restore model from epoch %d" % best_epoch)
+            logger.info("validation cost trigger: restore model from epoch %d" % best_epoch)
             del model
             model = torch.load(pjoin(args.run_dir, "disc-{}.pickle".format(best_epoch)))
         else:
@@ -358,6 +355,11 @@ if __name__ == '__main__':
         os.makedirs(args.run_dir)
     file_handler = logging.FileHandler("{0}/log.txt".format(args.run_dir))
     logging.getLogger().addHandler(file_handler)
+
+    # print parameters passed, and all parameters
+    # we no longer have flags.json
+    logger.info('\ntogrep : {0}\n'.format(sys.argv[1:]))
+    logger.info(args)
 
     if args.exclude == "" and args.include == "":
         tag = "all"
