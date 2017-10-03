@@ -29,17 +29,20 @@ from classifier import Classifier, EmbeddingLayer
 parser = argparse.ArgumentParser(description='DIS training')
 parser.add_argument("--lstm", action='store_true', help="whether to use lstm")
 parser.add_argument("--dev", action='store_true', help="whether to only evaluate the model")
+parser.add_argument("--deep_shallow", action='store_true', help="whether to use all layers to construct representation")
 parser.add_argument("--dataset", type=str, default="mr", help="which dataset")
 parser.add_argument("--path", type=str, required=True, help="path to corpus directory")
 parser.add_argument("--batch_size", "--batch", type=int, default=200)
 parser.add_argument("--seed", type=int, default=123)
+parser.add_argument("--layer_repr", type=int, default=-1, help="build representation from which layer") # not implemented yet
 parser.add_argument("--print_every", type=int, default=100)
 parser.add_argument("--max_seq_len", type=int, default=50)
 parser.add_argument("--restore_epoch", type=int, default=0)
 parser.add_argument("--epochs", type=int, default=10)
 parser.add_argument("--emb_dim", type=int, default=300)
+parser.add_argument("--state_size", type=int, default=512, help="state size")
 parser.add_argument("--dropout", type=float, default=0.5)
-parser.add_argument("--depth", type=int, default=2)
+parser.add_argument("--layers", type=int, default=2)
 parser.add_argument("--lr", type=float, default=0.003)
 parser.add_argument("--lr_decay", type=float, default=0.8)
 parser.add_argument("--run_dir", type=str, default='./sandbox', help="Output directory")
@@ -111,6 +114,7 @@ def padded(tokens, batch_pad=0):
     return map(lambda token_list: token_list + [PAD_ID] * (maxlen - len(token_list)), tokens)
 
 
+# TODO: the output must be [time_len, batch_size]
 def pair_iter(q, batch_size, inp_len, query_len):
     # use inp_len, query_len to filter list
     batched_seq1 = []
@@ -174,7 +178,8 @@ def train(model, optimizer, criterion, q_train, q_valid, q_test):
 
             model.zero_grad()
 
-            seqA_tokens_var, seqB_tokens_var = Variable(seqA_tokens), Variable(seqB_tokens)
+            # Note: must use seqA_tokens.T because it needs to be [seq_len, batch_size]
+            seqA_tokens_var, seqB_tokens_var = Variable(seqA_tokens.T), Variable(seqB_tokens.T)
             labels_var = Variable(labels)
 
             logits = model(seqA_tokens_var, seqB_tokens_var)
