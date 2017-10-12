@@ -69,24 +69,27 @@ class EmbeddingLayer(nn.Module):
 
 
 class Classifier(nn.Module):
-    def __init__(self, args, emb_layer, nclasses=2):
+    def __init__(self, args, emb_layer, nclasses=2, feature_dropout=False):
         super(Classifier, self).__init__()
         self.args = args
         self.drop = nn.Dropout(args.dropout)
         self.emb_layer = emb_layer
+        self.feature_dropout = feature_dropout
+        self.deep_shallow = args.deep_shallow
+        self.layer_repr = args.layer_lr
         if args.lstm:
             self.encoder = nn.LSTM(
                 emb_layer.n_d,
-                args.d,
-                args.depth,
+                args.state_size,
+                args.layers,
                 dropout=args.dropout,
             )
             d_out = args.d
         else:
             self.encoder = MF.SRU(
                 emb_layer.n_d,
-                args.d,
-                args.depth,
+                args.state_size,
+                args.layers,
                 dropout=args.dropout,
                 use_tanh=1,
                 bidirectional=True
@@ -94,23 +97,32 @@ class Classifier(nn.Module):
             d_out = args.d
         self.out_proj = nn.Linear(d_out, nclasses)
 
-    # TODO: fix this part
-    def forward(self, inputA, inputB, feature_dropout=False):
-        embA = self.emb_layer(inputA)
+    def forward(self, inputA, inputB):
+        embA = self.emb_layer(inputA)  # this is where embed happens
         embA = self.drop(embA)
 
         embB = self.emb_layer(inputB)
         embB = self.drop(embB)
 
         outputA, hiddenA = self.encoder(embA)  # outputA is a list of (batch_size, hidden_dim), length is time
-        outputA = outputA[-1]
-        # TODO: temporal max pooling here...
-        emb = torch.max(sent_output, 0)[0].squeeze(0)
-
         outputB, hiddenB = self.encoder(embB)
-        outputB = outputB[-1]
 
-        features = torch.cat((outputA, v, torch.abs(u - v), u * v), 1)
+        # bidirectional here is concatenation
+        # might want to make it addition?
+        if self.deep_shallow:
+            # after map it's [batch_size, hidden_dim] for each layer, we concatenate them
+            a = torch.cat(map(lambda o: torch.max(o, 0)[0].squeeze(0), outputA), 1)
+            b = torch.cat(map(lambda o: torch.max(o, 0)[0].squeeze(0), outputB), 1)
+        else:
+            # 1. extract last layer
+            outputA = outputA[-1]
+            outputB = outputB[-1]
+            # 2. do temp max pooling
+            # TODO: temporal max pooling here...
+            a = torch.max(outputA, 0)[0].squeeze(0)
+            b = torch.max(outputB, 0)[0].squeeze(0)
+
+        features = torch.cat((a, b, a - b, a * b, (a + b) / 2.), 1)
 
         return self.out_proj(features)
 
@@ -134,3 +146,8 @@ if __name__ == '__main__':
     # new output is [length, batch size, hidden size * number of directions]
     # with the size of layers
     import IPython; IPython.embed()
+<<<<<<< HEAD
+=======
+
+    # try temporal max pooling
+>>>>>>> 64761aa71d28a46e7de68839405c7124f91e708f

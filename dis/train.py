@@ -29,19 +29,25 @@ from classifier import Classifier, EmbeddingLayer
 parser = argparse.ArgumentParser(description='DIS training')
 parser.add_argument("--lstm", action='store_true', help="whether to use lstm")
 parser.add_argument("--dev", action='store_true', help="whether to only evaluate the model")
+parser.add_argument("--deep_shallow", action='store_true', help="whether to use all layers to construct representation")
 parser.add_argument("--dataset", type=str, default="mr", help="which dataset")
 parser.add_argument("--path", type=str, required=True, help="path to corpus directory")
 parser.add_argument("--batch_size", "--batch", type=int, default=200)
 parser.add_argument("--seed", type=int, default=123)
+parser.add_argument("--layer_repr", type=int, default=-1,
+                    help="build representation from which layer")  # not implemented yet
 parser.add_argument("--print_every", type=int, default=100)
 parser.add_argument("--max_seq_len", type=int, default=50)
 parser.add_argument("--restore_epoch", type=int, default=0)
 parser.add_argument("--epochs", type=int, default=10)
 parser.add_argument("--emb_dim", type=int, default=300)
+parser.add_argument("--state_size", type=int, default=512, help="state size")
 parser.add_argument("--dropout", type=float, default=0.5)
-parser.add_argument("--depth", type=int, default=2)
+parser.add_argument("--layers", type=int, default=2)
 parser.add_argument("--lr", type=float, default=0.003)
 parser.add_argument("--lr_decay", type=float, default=0.8)
+parser.add_argument("--early_stop", type=int, default=2)
+# parser.add_argument("--lr_shrink", type=float, default=0.99)  # not sure how much I like this
 parser.add_argument("--run_dir", type=str, default='./sandbox', help="Output directory")
 parser.add_argument("--prefix", type=str, default='', help="the prefix of data directory, unrelated to run_dir")
 parser.add_argument("--outputmodelname", "--opmn", type=str, default='model.pickle')
@@ -72,9 +78,6 @@ logging.basicConfig(format='[%(asctime)s] %(levelname)s: %(message)s',
                     datefmt='%m/%d/%Y %I:%M:%S %p', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# print parameters passed, and all parameters
-logger.info('\ntogrep : {0}\n'.format(sys.argv[1:]))
-logger.info(args)
 
 """
 Vocab-related config
@@ -111,6 +114,7 @@ def padded(tokens, batch_pad=0):
     return map(lambda token_list: token_list + [PAD_ID] * (maxlen - len(token_list)), tokens)
 
 
+# TODO: the output must be [time_len, batch_size]
 def pair_iter(q, batch_size, inp_len, query_len):
     # use inp_len, query_len to filter list
     batched_seq1 = []
@@ -136,10 +140,77 @@ def pair_iter(q, batch_size, inp_len, query_len):
         batched_seq1, batched_seq2, batched_label = [], [], []
 
 
-def validate(model, q_valid):
+def get_multiclass_accuracy(preds, labels):
+    label_cat = range(label_size)
+    labels_accu = {}
+
+    for la in label_cat:
+        # for each label, we get the index of the correct labels
+        idx_of_cat = labels == la
+        cat_preds = preds[idx_of_cat]
+        if cat_preds.size != 0:
+            accu = np.mean(cat_preds == la)
+            labels_accu[la] = [accu]
+        else:
+            labels_accu[la] = []
+
+    return labels_accu
+
+
+def cumulate_multiclass_accuracy(total_accu, labels_accu):
+    for k, v in labels_accu.iteritems():
+        total_accu[k].extend(v)
+
+
+def get_mean_multiclass_accuracy(total_accu):
+    for k, v in total_accu.iteritems():
+        total_accu[k] = np.mean(total_accu[k])
+
+
+def validate(model, q_valid, dev=False):
     # this is also used for test
     model.eval()
-    pass
+
+    valid_costs, valid_accus = [], []
+    valid_preds, valid_labels = [], []
+    total_labels_accu = None
+
+    for seqA_tokens, seqA_mask, seqB_tokens, \
+        seqB_mask, labels in pair_iter(q_valid, args.batch_size, args.max_seq_len, args.max_seq_len):
+        seqA_tokens_var, seqB_tokens_var = Variable(seqA_tokens.T), Variable(seqB_tokens.T)
+        labels_var = Variable(labels)
+
+        logits = model(seqA_tokens_var, seqB_tokens_var)
+
+        preds = logits.cpu().data.numpy()  # may or may not be broken
+        accu = np.mean(np.argmax(preds, axis=1) == labels)
+
+        labels_accu = get_multiclass_accuracy(preds, labels)
+        if total_labels_accu is None:
+            total_labels_accu = labels_accu
+        else:
+            cumulate_multiclass_accuracy(total_labels_accu, labels_accu)
+
+        valid_preds.extend(preds.tolist())
+        valid_labels.extend(labels.tolist())
+
+        valid_accus.append(accu)
+
+    valid_accu = sum(valid_accus) / float(len(valid_accus))
+    valid_cost = sum(valid_costs) / float(len(valid_costs))
+
+    get_mean_multiclass_accuracy(total_labels_accu)
+    multiclass_accu_msg = ''
+    for k, v in total_labels_accu.iteritems():
+        multiclass_accu_msg += label_tokens[k] + ": " + str(v) + " "
+
+    logger.info(multiclass_accu_msg)
+
+    if dev:
+        return valid_cost, valid_accu, valid_preds, valid_labels
+
+    return valid_cost, valid_accu
+
 
 def train(model, optimizer, criterion, q_train, q_valid, q_test):
     tic = time.time()
@@ -147,8 +218,6 @@ def train(model, optimizer, criterion, q_train, q_valid, q_test):
 
     toc = time.time()
     logging.info("Number of params: %d (retreival took %f secs)" % (num_params, toc - tic))
-
-    model.train()
 
     lr = args.lr
     epoch = args.restore_epoch
@@ -159,9 +228,17 @@ def train(model, optimizer, criterion, q_train, q_valid, q_test):
     exp_cost = None
     exp_norm = None
 
+    triggered_stop = 0
+
     while num_epochs == 0 or epoch < num_epochs:
+
+        # because we validate at the end training loop, need to set train again here
+        model.train()
         epoch += 1
         current_step = 0
+
+        if triggered_stop == args.early_stop:
+            break  # go directly into testing
 
         ## Train
         epoch_tic = time.time()
@@ -174,81 +251,102 @@ def train(model, optimizer, criterion, q_train, q_valid, q_test):
 
             model.zero_grad()
 
-            seqA_tokens_var, seqB_tokens_var = Variable(seqA_tokens), Variable(seqB_tokens)
+            # Note: must use seqA_tokens.T because it needs to be (seq_len, batch_size)
+            # embed layer is called inside Model, so let's hope this gets to CUDA
+            seqA_tokens_var, seqB_tokens_var = Variable(seqA_tokens.T), Variable(seqB_tokens.T)
             labels_var = Variable(labels)
 
             logits = model(seqA_tokens_var, seqB_tokens_var)
 
             loss = criterion(logits, labels_var)
             loss.backward()
+
+            # === gradient clipping (same as InferSent) ===
+            shrink_factor = 1
+            total_norm = 0
+
+            # batch_size
+            k = seqA_tokens.size(0)  # original data is (batch_size, seq_len)
+
+            for p in model.parameters():
+                if p.requires_grad:
+                    p.grad.data.div_(k)  # divide by the actual batch size
+                    total_norm += p.grad.data.norm() ** 2
+            total_norm = np.sqrt(total_norm)
+
+            if total_norm > args.max_norm:
+                shrink_factor = args.max_norm / total_norm
+            current_lr = optimizer.param_groups[0]['lr']  # current lr (no external "lr", for adam)
+            # instead of "clipping", I guess "shrinking" is the same?
+            # it does have a method for clipping though for optimizer
+            optimizer.param_groups[0]['lr'] = current_lr * shrink_factor  # just for update
+
+            # optimizer step
             optimizer.step()
+            optimizer.param_groups[0]['lr'] = current_lr
 
             # logits, grad_norm, cost, param_norm, seqA_rep = self.optimize(session, seqA_tokens_var,
             #                                                               seqB_tokens, seqB_mask, labels)
 
-            accu = np.mean(np.argmax(logits, axis=1) == labels)
+            preds = logits.cpu().data.numpy()  # may or may not be broken
+            accu = np.mean(np.argmax(preds, axis=1) == labels)
 
             toc = time.time()
             iter_time = toc - tic
             current_step += 1
+            cost = float(loss.cpu().data.numpy())  # loss is supposed to be a number anyway
 
             if not exp_cost:
                 exp_cost = cost
-                exp_norm = grad_norm
+                # exp_norm = grad_norm
             else:
                 exp_cost = 0.99 * exp_cost + 0.01 * cost
-                exp_norm = 0.99 * exp_norm + 0.01 * grad_norm
+                # exp_norm = 0.99 * exp_norm + 0.01 * grad_norm
 
-            if current_step % self.flags.print_every == 0:
-                logging.info(
-                    'epoch %d, iter %d, cost %f, exp_cost %f, accuracy %f, grad norm %f, param norm %f, batch time %f' %
-                    (epoch, current_step, cost, exp_cost, accu, grad_norm, param_norm, iter_time))
+            if current_step % args.print_every == 0:
+                # , grad_norm, param_norm
+                logger.info(
+                    'epoch %d, iter %d, cost %f, exp_cost %f, accuracy %f, batch time %f' %
+                    (epoch, current_step, cost, exp_cost, accu, iter_time))
 
         epoch_toc = time.time()
 
         ## Checkpoint
-        checkpoint_path = os.path.join(save_train_dirs, "dis.ckpt")
+        # checkpoint_path = os.path.join(save_train_dirs, "dis.ckpt")
 
         ## Validate
-        valid_cost, valid_accu = self.but_because_validate(session, q_valid, label_tokens)
+        valid_cost, valid_accu = validate(model, q_valid, args.dev)
 
-        logging.info("Epoch %d Validation cost: %f validation accu: %f epoch time: %f" % (epoch, valid_cost,
+        logger.info("Epoch %d Validation cost: %f validation accu: %f epoch time: %f" % (epoch, valid_cost,
                                                                                           valid_accu,
                                                                                           epoch_toc - epoch_tic))
 
-        # if epoch >= self.flags.learning_rate_decay_epoch:
-        #     lr *= FLAGS.learning_rate_decay
-        #     logging.info("Annealing learning rate at epoch {} to {}".format(epoch, lr))
-        #     session.run(self.learning_rate_decay_op)
-
         # only do accuracy
         if len(previous_losses) >= 1 and valid_accu < max(valid_accus):
-            lr *= FLAGS.learning_rate_decay
-            logging.info("Annealing learning rate at epoch {} to {}".format(epoch, lr))
-            session.run(self.learning_rate_decay_op)
+            # lr *= args.learning_rate_decay
+            # logging.info("Annealing learning rate at epoch {} to {}".format(epoch, lr))
+            # session.run(self.learning_rate_decay_op)
 
-            logging.info("validation cost trigger: restore model from epoch %d" % best_epoch)
-            self.saver.restore(session, checkpoint_path + ("-%d" % best_epoch))
+            # implement learning rate decay for SGD and ADAM, if validation is too high
+            optimizer.param_groups[0]['lr'] = optimizer.param_groups[0]['lr'] * args.lr_decay if epoch > 1 \
+                                              else optimizer.param_groups[0]['lr']
+
+            logger.info('Annealing learning rate at epoch {} to {}'.format(epoch, optimizer.param_groups[0]['lr']))
+            triggered_stop += 1
+
+            logger.info("validation cost trigger: restore model from epoch %d" % best_epoch)
+            del model
+            model = torch.load(pjoin(args.run_dir, "disc-{}.pickle".format(best_epoch)))
         else:
+            # we can put learning rate shrink here
             previous_losses.append(valid_cost)
             best_epoch = epoch
-            self.saver.save(session, checkpoint_path, global_step=epoch)
+            torch.save(model, pjoin(args.run_dir, "disc-{}.pickle".format(epoch)))
 
         valid_accus.append(valid_accu)
 
-    logging.info("restore model from best epoch %d" % best_epoch)
-    # logging.info("best validation accuracy: %f" % valid_accus[best_epoch - 1])  # this line is evil!
-    self.saver.restore(session, checkpoint_path + ("-%d" % best_epoch))
-
-    # after training, we test this thing
-    ## Test
-    test_cost, test_accu = self.but_because_validate(session, q_test, label_tokens)
-    logging.info("Final test cost: %f test accu: %f" % (test_cost, test_accu))
-
-    logging.info("Saving confusion matrix csv")
-    self.but_because_dev_test(session, q_test, FLAGS.run_dir, label_tokens)
-
     sys.stdout.flush()
+    return best_epoch
 
 
 if __name__ == '__main__':
@@ -257,6 +355,11 @@ if __name__ == '__main__':
         os.makedirs(args.run_dir)
     file_handler = logging.FileHandler("{0}/log.txt".format(args.run_dir))
     logging.getLogger().addHandler(file_handler)
+
+    # print parameters passed, and all parameters
+    # we no longer have flags.json
+    logger.info('\ntogrep : {0}\n'.format(sys.argv[1:]))
+    logger.info(args)
 
     if args.exclude == "" and args.include == "":
         tag = "all"
@@ -315,7 +418,7 @@ if __name__ == '__main__':
     criterion = nn.CrossEntropyLoss()
 
     # construct your full model
-    model = Classifier(args, emb_layer, label_size).cuda()
+    model = Classifier(args, emb_layer, label_size).cuda()  # move all params to cuda
     need_grad = lambda x: x.requires_grad
     params = model.parameters()
     optimizer = optim.Adam(
@@ -334,4 +437,19 @@ if __name__ == '__main__':
         with open(pkl_val_name, "rb") as f:
             q_valid = pickle.load(f)
         # start training cycle (use adam)
-        train(model, optimizer, criterion, q_train, q_valid, q_test)
+        best_epoch = train(model, optimizer, criterion, q_train, q_valid, q_test)
+    else:
+        best_epoch = args.restore_epoch
+
+    logging.info("restore model from best epoch %d" % best_epoch)
+    del model
+    model = torch.load(pjoin(args.run_dir, "disc-{}.pickle".format(best_epoch)))
+
+    # after training, we test this thing
+    ## Test
+    test_cost, test_accu = validate(model, q_test)
+    logging.info("Final test cost: %f test accu: %f" % (test_cost, test_accu))
+
+    # TODO: implement confusion matrix here
+    # logging.info("Saving confusion matrix csv")
+    # self.but_because_dev_test(session, q_test, FLAGS.run_dir, label_tokens)
