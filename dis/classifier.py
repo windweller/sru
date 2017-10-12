@@ -136,8 +136,8 @@ if __name__ == '__main__':
         use_tanh=1,
         bidirectional=True
     )
-
-    x = torch.randn([3, 10, 5]) # (seq_len, batch, input_size)
+    from torch.autograd import Variable
+    x = Variable(torch.randn([3, 10, 5]))
 
     output, hidden = encoder(x)
     # output is (length, batch size, hidden size * number of directions)
@@ -146,5 +146,8 @@ if __name__ == '__main__':
     # new output is [length, batch size, hidden size * number of directions]
     # with the size of layers
     import IPython; IPython.embed()
+<<<<<<< HEAD
+=======
 
     # try temporal max pooling
+>>>>>>> 64761aa71d28a46e7de68839405c7124f91e708f
