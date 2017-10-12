@@ -124,8 +124,8 @@ if __name__ == '__main__':
         use_tanh=1,
         bidirectional=True
     )
-
-    x = torch.randn([3, 10, 5])
+    from torch.autograd import Variable
+    x = Variable(torch.randn([3, 10, 5]))
 
     output, hidden = encoder(x)
     # output is (length, batch size, hidden size * number of directions)
