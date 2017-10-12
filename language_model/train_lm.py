@@ -15,18 +15,19 @@ import cuda_functional as MF
 
 
 def read_corpus(path, eos="</s>"):
-    data = [ ]
+    data = []
     with open(path) as fin:
         for line in fin:
-            data += line.split() + [ eos ]
+            data += line.split() + [eos]
     return data
+
 
 def create_batches(data_text, map_to_ids, batch_size, cuda=True):
     data_ids = map_to_ids(data_text)
     N = len(data_ids)
-    L = ((N-1) // batch_size) * batch_size
-    x = np.copy(data_ids[:L].reshape(batch_size,-1).T)
-    y = np.copy(data_ids[1:L+1].reshape(batch_size,-1).T)
+    L = ((N - 1) // batch_size) * batch_size
+    x = np.copy(data_ids[:L].reshape(batch_size, -1).T)
+    y = np.copy(data_ids[1:L + 1].reshape(batch_size, -1).T)
     x, y = torch.from_numpy(x), torch.from_numpy(y)
     x, y = x.contiguous(), y.contiguous()
     if cuda:
@@ -51,8 +52,8 @@ class EmbeddingLayer(nn.Module):
 
     def map_to_ids(self, text):
         return np.asarray([self.word2id[x] for x in text],
-                 dtype='int64'
-        )
+                          dtype='int64')
+
 
 class Model(nn.Module):
     def __init__(self, words, args):
@@ -65,15 +66,15 @@ class Model(nn.Module):
         self.n_V = self.embedding_layer.n_V
         if args.lstm:
             self.rnn = nn.LSTM(self.n_d, self.n_d,
-                self.depth,
-                dropout = args.rnn_dropout
-            )
+                               self.depth,
+                               dropout=args.rnn_dropout
+                               )
         else:
             self.rnn = MF.SRU(self.n_d, self.n_d, self.depth,
-                dropout = args.rnn_dropout,
-                rnn_dropout = args.rnn_dropout,
-                use_tanh = 0
-            )
+                              dropout=args.rnn_dropout,
+                              rnn_dropout=args.rnn_dropout,
+                              use_tanh=0
+                              )
         self.output_layer = nn.Linear(self.n_d, self.n_V)
         # tie weights
         self.output_layer.weight = self.embedding_layer.embedding.weight
@@ -83,7 +84,7 @@ class Model(nn.Module):
             self.rnn.set_bias(args.bias)
 
     def init_weights(self):
-        val_range = (3.0/self.n_d)**0.5
+        val_range = (3.0 / self.n_d) ** 0.5
         for p in self.parameters():
             if p.dim() > 1:  # matrix
                 p.data.uniform_(-val_range, val_range)
@@ -107,10 +108,11 @@ class Model(nn.Module):
             return zeros
 
     def print_pnorm(self):
-        norms = [ "{:.0f}".format(x.norm().data[0]) for x in self.parameters() ]
+        norms = ["{:.0f}".format(x.norm().data[0]) for x in self.parameters()]
         sys.stdout.write("\tp_norm: {}\n".format(
             norms
         ))
+
 
 def train_model(epoch, model, train):
     model.train()
@@ -118,16 +120,16 @@ def train_model(epoch, model, train):
 
     unroll_size = args.unroll_size
     batch_size = args.batch_size
-    N = (len(train[0])-1)//unroll_size + 1
+    N = (len(train[0]) - 1) // unroll_size + 1
     lr = args.lr
 
     total_loss = 0.0
     criterion = nn.CrossEntropyLoss(size_average=False)
     hidden = model.init_hidden(batch_size)
     for i in range(N):
-        x = train[0][i*unroll_size:(i+1)*unroll_size]
-        y = train[1][i*unroll_size:(i+1)*unroll_size].view(-1)
-        x, y =  Variable(x), Variable(y)
+        x = train[0][i * unroll_size:(i + 1) * unroll_size]
+        y = train[1][i * unroll_size:(i + 1) * unroll_size].view(-1)
+        x, y = Variable(x), Variable(y)
         hidden = (Variable(hidden[0].data), Variable(hidden[1].data)) if args.lstm \
             else Variable(hidden.data)
 
@@ -141,7 +143,7 @@ def train_model(epoch, model, train):
         for p in model.parameters():
             if p.requires_grad:
                 if args.weight_decay > 0:
-                    p.data.mul_(1.0-args.weight_decay)
+                    p.data.mul_(1.0 - args.weight_decay)
                 p.data.add_(-lr, p.grad.data)
 
         if math.isnan(loss.data[0]) or math.isinf(loss.data[0]):
@@ -149,11 +151,12 @@ def train_model(epoch, model, train):
             return
 
         total_loss += loss.data[0] / x.size(0)
-        if i%10 == 0:
+        if i % 10 == 0:
             sys.stdout.write("\r{}".format(i))
             sys.stdout.flush()
 
-    return np.exp(total_loss/N)
+    return np.exp(total_loss / N)
+
 
 def eval_model(model, valid):
     model.eval()
@@ -162,10 +165,10 @@ def eval_model(model, valid):
     unroll_size = model.args.unroll_size
     criterion = nn.CrossEntropyLoss(size_average=False)
     hidden = model.init_hidden(1)
-    N = (len(valid[0])-1)//unroll_size + 1
+    N = (len(valid[0]) - 1) // unroll_size + 1
     for i in range(N):
-        x = valid[0][i*unroll_size:(i+1)*unroll_size]
-        y = valid[1][i*unroll_size:(i+1)*unroll_size].view(-1)
+        x = valid[0][i * unroll_size:(i + 1) * unroll_size]
+        y = valid[1][i * unroll_size:(i + 1) * unroll_size].view(-1)
         x, y = Variable(x, volatile=True), Variable(y)
         hidden = (Variable(hidden[0].data), Variable(hidden[1].data)) if args.lstm \
             else Variable(hidden.data)
@@ -175,6 +178,7 @@ def eval_model(model, valid):
     avg_loss = total_loss / valid[1].numel()
     ppl = np.exp(avg_loss)
     return ppl
+
 
 def main(args):
     train = read_corpus(args.train)
@@ -201,17 +205,17 @@ def main(args):
     best_dev = 1e+8
     for epoch in range(args.max_epoch):
         start_time = time.time()
-        if args.lr_decay_epoch>0 and epoch>=args.lr_decay_epoch:
+        if args.lr_decay_epoch > 0 and epoch >= args.lr_decay_epoch:
             args.lr *= args.lr_decay
         train_ppl = train_model(epoch, model, train)
         dev_ppl = eval_model(model, dev)
         sys.stdout.write("\rEpoch={}  lr={:.4f}  train_ppl={:.2f}  dev_ppl={:.2f}"
-                "\t[{:.2f}m]\n".format(
+                         "\t[{:.2f}m]\n".format(
             epoch,
             args.lr,
             train_ppl,
             dev_ppl,
-            (time.time()-start_time)/60.0
+            (time.time() - start_time) / 60.0
         ))
         model.print_pnorm()
         sys.stdout.flush()
@@ -223,13 +227,14 @@ def main(args):
             test_ppl = eval_model(model, test)
             sys.stdout.write("\t[eval]  test_ppl={:.2f}\t[{:.2f}m]\n".format(
                 test_ppl,
-                (time.time()-start_time)/60.0
+                (time.time() - start_time) / 60.0
             ))
             sys.stdout.flush()
         else:
             unchanged += 1
         if unchanged >= 30: break
         sys.stdout.write("\n")
+
 
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser(sys.argv[0], conflict_handler='resolve')
@@ -242,14 +247,14 @@ if __name__ == "__main__":
     argparser.add_argument("--max_epoch", type=int, default=300)
     argparser.add_argument("--d", type=int, default=910)
     argparser.add_argument("--dropout", type=float, default=0.7,
-        help="dropout of word embeddings and softmax output"
-    )
+                           help="dropout of word embeddings and softmax output"
+                           )
     argparser.add_argument("--rnn_dropout", type=float, default=0.2,
-        help="dropout of RNN layers"
-    )
+                           help="dropout of RNN layers"
+                           )
     argparser.add_argument("--bias", type=float, default=-3,
-        help="intial bias of highway gates",
-    )
+                           help="intial bias of highway gates",
+                           )
     argparser.add_argument("--depth", type=int, default=6)
     argparser.add_argument("--lr", type=float, default=1.0)
     argparser.add_argument("--lr_decay", type=float, default=0.98)
