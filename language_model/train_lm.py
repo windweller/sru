@@ -281,7 +281,6 @@ if __name__ == "__main__":
     """
     Seeding
     """
-    torch.cuda.set_device(args.gpu_id)
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
 
