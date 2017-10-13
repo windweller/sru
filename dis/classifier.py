@@ -146,8 +146,3 @@ if __name__ == '__main__':
     # new output is [length, batch size, hidden size * number of directions]
     # with the size of layers
     import IPython; IPython.embed()
-<<<<<<< HEAD
-=======
-
-    # try temporal max pooling
->>>>>>> 64761aa71d28a46e7de68839405c7124f91e708f

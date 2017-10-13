@@ -12,6 +12,11 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 
 import cuda_functional as MF
+import logging
+
+logging.basicConfig(format='[%(asctime)s] %(levelname)s: %(message)s',
+                    datefmt='%m/%d/%Y %I:%M:%S %p', level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 def read_corpus(path, eos="</s>"):
@@ -113,6 +118,9 @@ class Model(nn.Module):
             norms
         ))
 
+def kl_norm(output):
+    # x: (time_steps x batch_size x output_dim)
+    return output.pow(2).sum() / 2.
 
 def train_model(epoch, model, train):
     model.train()
@@ -137,6 +145,8 @@ def train_model(epoch, model, train):
         output, hidden = model(x, hidden)
         assert x.size(1) == batch_size
         loss = criterion(output, y) / x.size(1)
+        # add activation norm penalty
+        loss += args.norm_scale * kl_norm(output)  # hope this is correct?
         loss.backward()
 
         torch.nn.utils.clip_grad_norm(model.parameters(), args.clip_grad)
@@ -261,7 +271,30 @@ if __name__ == "__main__":
     argparser.add_argument("--lr_decay_epoch", type=int, default=175)
     argparser.add_argument("--weight_decay", type=float, default=1e-5)
     argparser.add_argument("--clip_grad", type=float, default=5)
+    argparser.add_argument("--norm_scale", type=float, default=0.)
+    argparser.add_argument("--run_dir", type=str, default='./sandbox')
+    argparser.add_argument("--seed", type=int, default=123)
 
     args = argparser.parse_args()
     print (args)
+
+    """
+    Seeding
+    """
+    torch.cuda.set_device(args.gpu_id)
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
+
+    use_cuda = torch.cuda.is_available()
+    if use_cuda:
+        torch.cuda.manual_seed_all(args.seed)
+
+    """
+    Logging saving
+    """
+    if not os.path.exists(args.run_dir):
+        os.makedirs(args.run_dir)
+    file_handler = logging.FileHandler("{0}/log.txt".format(args.run_dir))
+    logging.getLogger().addHandler(file_handler)
+
     main(args)
