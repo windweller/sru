@@ -98,11 +98,11 @@ class Model(nn.Module):
 
     def forward(self, x, hidden):
         emb = self.drop(self.embedding_layer(x))
-        output, hidden = self.rnn(emb, hidden)
-        output = self.drop(output)
+        outputs, hidden = self.rnn(emb, hidden)
+        output = self.drop(outputs[-1])  # we are getting all outputs
         output = output.view(-1, output.size(2))
         output = self.output_layer(output)
-        return output, hidden
+        return outputs, output, hidden
 
     def init_hidden(self, batch_size):
         weight = next(self.parameters()).data
@@ -142,7 +142,7 @@ def train_model(epoch, model, train):
             else Variable(hidden.data)
 
         model.zero_grad()
-        output, hidden = model(x, hidden)
+        outputs, output, hidden = model(x, hidden)
         assert x.size(1) == batch_size
         loss = criterion(output, y) / x.size(1)
         # add activation norm penalty
@@ -249,6 +249,8 @@ def main(args):
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser(sys.argv[0], conflict_handler='resolve')
     argparser.add_argument("--lstm", action="store_true")
+    argparser.add_argument("--penalty_decay_factor", default=0., type=float, help="penalty = factor * penalty for each layer"
+                                                                                  ". When=0 means we don't do layerwise")
     argparser.add_argument("--train", type=str, default='./ptb/ptb.train.txt', help="training file")
     argparser.add_argument("--dev", type=str, default='./ptb/ptb.valid.txt', help="dev file")
     argparser.add_argument("--test", type=str, default='./ptb/ptb.test.txt', help="test file")
