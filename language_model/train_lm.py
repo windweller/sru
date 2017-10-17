@@ -189,7 +189,7 @@ def eval_model(model, valid):
         x, y = Variable(x, volatile=True), Variable(y)
         hidden = (Variable(hidden[0].data), Variable(hidden[1].data)) if args.lstm \
             else Variable(hidden.data)
-        output, hidden = model(x, hidden)
+        outputs, output, hidden = model(x, hidden)
         loss = criterion(output, y)
         total_loss += loss.data[0]
     avg_loss = total_loss / valid[1].numel()
