@@ -145,8 +145,15 @@ def train_model(epoch, model, train):
         outputs, output, hidden = model(x, hidden)
         assert x.size(1) == batch_size
         loss = criterion(output, y) / x.size(1)
+        # outputs is output from each layer, from beginning to end
+
+        cumulative_penalty = args.norm_scale
+        for o in reversed(outputs):
+            loss += cumulative_penalty * kl_norm(o)
+            cumulative_penalty = cumulative_penalty * args.penalty_decay_factor
+
         # add activation norm penalty
-        loss += args.norm_scale * kl_norm(output)  # hope this is correct?
+        # loss += args.norm_scale * kl_norm(output)  # hope this is correct?
         loss.backward()
 
         torch.nn.utils.clip_grad_norm(model.parameters(), args.clip_grad)
