@@ -154,6 +154,8 @@ def train_model(epoch, model, train):
 
         # add activation norm penalty
         # loss += args.norm_scale * kl_norm(output)  # hope this is correct?
+
+        loss += args.norm_scale * torch.sum(torch.pow(output, 2))
         loss.backward()
 
         torch.nn.utils.clip_grad_norm(model.parameters(), args.clip_grad)
@@ -261,7 +263,7 @@ if __name__ == "__main__":
     argparser.add_argument("--train", type=str, default='./ptb/ptb.train.txt', help="training file")
     argparser.add_argument("--dev", type=str, default='./ptb/ptb.valid.txt', help="dev file")
     argparser.add_argument("--test", type=str, default='./ptb/ptb.test.txt', help="test file")
-    argparser.add_argument("--batch_size", "--batch", type=int, default=64)
+    argparser.add_argument("--batch_size", "--batch", type=int, default=32)
     argparser.add_argument("--unroll_size", type=int, default=35)
     argparser.add_argument("--max_epoch", type=int, default=300)
     argparser.add_argument("--d", type=int, default=910)
