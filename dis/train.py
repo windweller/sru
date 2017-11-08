@@ -12,7 +12,6 @@ import logging
 import pickle
 import json
 import gzip
-import path
 
 from os.path import join as pjoin
 
@@ -31,7 +30,7 @@ parser.add_argument("--lstm", action='store_true', help="whether to use lstm")
 parser.add_argument("--dev", action='store_true', help="whether to only evaluate the model")
 parser.add_argument("--deep_shallow", action='store_true', help="whether to use all layers to construct representation")
 parser.add_argument("--dataset", type=str, default="mr", help="which dataset")
-parser.add_argument("--path", type=str, required=True, help="path to corpus directory")
+# parser.add_argument("--path", type=str, required=True, help="path to corpus directory")
 parser.add_argument("--batch_size", "--batch", type=int, default=200)
 parser.add_argument("--seed", type=int, default=123)
 parser.add_argument("--layer_repr", type=int, default=-1,
@@ -373,7 +372,7 @@ if __name__ == '__main__':
         tag = args.include.replace(",", "_").replace(" ", "_")
     else:
         raise Exception("no match state for exclude/include")
-    glove_name = "glove.trimmed.{}_{}.npz".format(args.embedding_size, tag)
+    glove_name = "glove.trimmed.{}_{}.npz".format(args.emb_dim, tag)
     vocab_name = "vocab_{}.dat".format(tag)
     tag = "_" + tag
 
