@@ -211,7 +211,6 @@ def validate(model, q_valid, dev=False):
 
     return valid_cost, valid_accu
 
-
 def train(model, optimizer, criterion, q_train, q_valid, q_test):
     tic = time.time()
     num_params = sum(map(lambda t: np.prod(t.size()), params))
@@ -262,28 +261,32 @@ def train(model, optimizer, criterion, q_train, q_valid, q_test):
             loss.backward()
 
             # === gradient clipping (same as InferSent) ===
-            shrink_factor = 1
-            total_norm = 0
 
-            # batch_size
-            k = seqA_tokens.size(0)  # original data is (batch_size, seq_len)
+            # shrink_factor = 1
+            # total_norm = 0
+            #
+            # # batch_size
+            # k = seqA_tokens.size(0)  # original data is (batch_size, seq_len)
+            #
+            # for p in model.parameters():
+            #     if p.requires_grad:
+            #         p.grad.data.div_(k)  # divide by the actual batch size
+            #         total_norm += p.grad.data.norm() ** 2
+            #
+            # total_norm = np.sqrt(total_norm)
 
-            for p in model.parameters():
-                if p.requires_grad:
-                    p.grad.data.div_(k)  # divide by the actual batch size
-                    total_norm += p.grad.data.norm() ** 2
-            total_norm = np.sqrt(total_norm)
+            # if total_norm > args.max_norm:
+            #     shrink_factor = args.max_norm / total_norm
+            # current_lr = optimizer.param_groups[0]['lr']  # current lr (no external "lr", for adam)
+            # # instead of "clipping", I guess "shrinking" is the same?
+            # # it does have a method for clipping though for optimizer
+            # optimizer.param_groups[0]['lr'] = current_lr * shrink_factor  # just for update
 
-            if total_norm > args.max_norm:
-                shrink_factor = args.max_norm / total_norm
-            current_lr = optimizer.param_groups[0]['lr']  # current lr (no external "lr", for adam)
-            # instead of "clipping", I guess "shrinking" is the same?
-            # it does have a method for clipping though for optimizer
-            optimizer.param_groups[0]['lr'] = current_lr * shrink_factor  # just for update
+            torch.nn.utils.clip_grad_norm(model.parameters(), args.max_norm)
 
             # optimizer step
             optimizer.step()
-            optimizer.param_groups[0]['lr'] = current_lr
+            # optimizer.param_groups[0]['lr'] = current_lr
 
             # logits, grad_norm, cost, param_norm, seqA_rep = self.optimize(session, seqA_tokens_var,
             #                                                               seqB_tokens, seqB_mask, labels)

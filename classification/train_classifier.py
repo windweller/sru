@@ -179,8 +179,7 @@ def main(args):
     need_grad = lambda x: x.requires_grad
     optimizer = optim.Adam(
         filter(need_grad, model.parameters()),
-        lr = args.lr
-    )
+        lr=args.lr)
 
     best_valid = 1e+8
     test_err = 1e+8
