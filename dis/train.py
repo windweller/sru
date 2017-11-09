@@ -49,7 +49,6 @@ parser.add_argument("--early_stop", type=int, default=2)
 # parser.add_argument("--lr_shrink", type=float, default=0.99)  # not sure how much I like this
 parser.add_argument("--run_dir", type=str, default='./sandbox', help="Output directory")
 parser.add_argument("--prefix", type=str, default='', help="the prefix of data directory, unrelated to run_dir")
-parser.add_argument("--outputmodelname", "--opmn", type=str, default='model.pickle')
 parser.add_argument("--max_norm", type=float, default=5., help="max norm (grad clipping)")
 parser.add_argument("--exclude", default="", help="discourse markers excluded", type=str)
 parser.add_argument("--include", default="", help="discourse markers included", type=str)
