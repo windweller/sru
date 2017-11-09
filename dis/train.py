@@ -51,17 +51,16 @@ parser.add_argument("--run_dir", type=str, default='./sandbox', help="Output dir
 parser.add_argument("--prefix", type=str, default='', help="the prefix of data directory, unrelated to run_dir")
 parser.add_argument("--outputmodelname", "--opmn", type=str, default='model.pickle')
 parser.add_argument("--max_norm", type=float, default=5., help="max norm (grad clipping)")
-parser.add_argument("--gpu_id", type=int, default=3, help="GPU ID")
 parser.add_argument("--exclude", default="", help="discourse markers excluded", type=str)
 parser.add_argument("--include", default="", help="discourse markers included", type=str)
 parser.add_argument("--opt", default="adam", help="adam/sgd", type=str)  # not implemented yet
+parser.add_argument("--bias", type=float, default=-3, help="intial bias of highway gates")
 
 args, _ = parser.parse_known_args()
 
 """
 Seeding
 """
-torch.cuda.set_device(args.gpu_id)
 torch.manual_seed(args.seed)
 np.random.seed(args.seed)
 
@@ -129,11 +128,11 @@ def pair_iter(q, batch_size, inp_len, query_len):
                 batched_seq2.append(pair[1])
                 batched_label.append(pair[2])
 
-        padded_input = np.array(padded(batched_seq1), dtype=np.int32)
+        padded_input = np.array(padded(batched_seq1), dtype=np.int)
         input_mask = (padded_input != PAD_ID).astype(np.int32)
-        padded_query = np.array(padded(batched_seq2), dtype=np.int32)
-        query_mask = (padded_query != PAD_ID).astype(np.int32)
-        labels = np.array(batched_label, dtype=np.int32)
+        padded_query = np.array(padded(batched_seq2), dtype=np.int)
+        query_mask = (padded_query != PAD_ID).astype(np.int)
+        labels = np.array(batched_label, dtype=np.int)
 
         yield padded_input, input_mask, padded_query, query_mask, labels
         batched_seq1, batched_seq2, batched_label = [], [], []
@@ -176,10 +175,11 @@ def validate(model, q_valid, dev=False):
 
     for seqA_tokens, seqA_mask, seqB_tokens, \
         seqB_mask, labels in pair_iter(q_valid, args.batch_size, args.max_seq_len, args.max_seq_len):
-        seqA_tokens_var, seqB_tokens_var = Variable(torch.from_numpy(seqA_tokens.T)), Variable(torch.from_numpy(seqB_tokens.T))
-        # labels_var = Variable(torch.from_numpy(labels))
+        seqA_tokens_var, seqB_tokens_var = Variable(torch.from_numpy(seqA_tokens.T)).cuda(), Variable(torch.from_numpy(seqB_tokens.T)).cuda()
+        # labels_var = Variable(torch.from_numpy(labels).cuda(), requires_grad=False)
 
         logits = model(seqA_tokens_var, seqB_tokens_var)
+        # valid_cost = criterion(logits,labels_var).cpu().data.numpy()
 
         preds = logits.cpu().data.numpy()  # may or may not be broken
         accu = np.mean(np.argmax(preds, axis=1) == labels)
@@ -196,7 +196,7 @@ def validate(model, q_valid, dev=False):
         valid_accus.append(accu)
 
     valid_accu = sum(valid_accus) / float(len(valid_accus))
-    valid_cost = sum(valid_costs) / float(len(valid_costs))
+    # valid_cost = sum(valid_costs) / float(len(valid_costs))
 
     get_mean_multiclass_accuracy(total_labels_accu)
     multiclass_accu_msg = ''
@@ -206,9 +206,9 @@ def validate(model, q_valid, dev=False):
     logger.info(multiclass_accu_msg)
 
     if dev:
-        return valid_cost, valid_accu, valid_preds, valid_labels
+        return valid_accu, valid_preds, valid_labels  # valid_cost,
 
-    return valid_cost, valid_accu
+    return valid_accu  # valid_cost,
 
 def train(model, optimizer, criterion, q_train, q_valid, q_test):
     tic = time.time()
@@ -221,7 +221,6 @@ def train(model, optimizer, criterion, q_train, q_valid, q_test):
     epoch = args.restore_epoch
     best_epoch = 0
     num_epochs = args.epochs
-    previous_losses = []
     valid_accus = []
     exp_cost = None
     exp_norm = None
@@ -251,8 +250,8 @@ def train(model, optimizer, criterion, q_train, q_valid, q_test):
 
             # Note: must use seqA_tokens.T because it needs to be (seq_len, batch_size)
             # embed layer is called inside Model, so let's hope this gets to CUDA
-            seqA_tokens_var, seqB_tokens_var = Variable(torch.from_numpy(seqA_tokens.T)), Variable(torch.from_numpy(seqB_tokens.T))
-            labels_var = Variable(torch.from_numpy(labels), requires_grad=False)
+            seqA_tokens_var, seqB_tokens_var = Variable(torch.from_numpy(seqA_tokens.T)).cuda(), Variable(torch.from_numpy(seqB_tokens.T)).cuda()
+            labels_var = Variable(torch.from_numpy(labels).cuda(), requires_grad=False)
 
             logits = model(seqA_tokens_var, seqB_tokens_var)
 
@@ -317,14 +316,13 @@ def train(model, optimizer, criterion, q_train, q_valid, q_test):
         # checkpoint_path = os.path.join(save_train_dirs, "dis.ckpt")
 
         ## Validate
-        valid_cost, valid_accu = validate(model, q_valid, args.dev)
+        valid_accu = validate(model, q_valid, args.dev)  # valid_cost,
 
-        logger.info("Epoch %d Validation cost: %f validation accu: %f epoch time: %f" % (epoch, valid_cost,
-                                                                                          valid_accu,
-                                                                                          epoch_toc - epoch_tic))
+        logger.info("Epoch %d Validation accu: %f epoch time: %f" % (epoch, valid_accu,
+                                                                      epoch_toc - epoch_tic))
 
         # only do accuracy
-        if len(previous_losses) >= 1 and valid_accu < max(valid_accus):
+        if len(valid_accus) >= 1 and valid_accu < max(valid_accus):
             # lr *= args.learning_rate_decay
             # logging.info("Annealing learning rate at epoch {} to {}".format(epoch, lr))
             # session.run(self.learning_rate_decay_op)
@@ -341,7 +339,6 @@ def train(model, optimizer, criterion, q_train, q_valid, q_test):
             model = torch.load(pjoin(args.run_dir, "disc-{}.pickle".format(best_epoch)))
         else:
             # we can put learning rate shrink here
-            previous_losses.append(valid_cost)
             best_epoch = epoch
             torch.save(model, pjoin(args.run_dir, "disc-{}.pickle".format(epoch)))
 
@@ -421,6 +418,7 @@ if __name__ == '__main__':
 
     # construct your full model
     model = Classifier(args, emb_layer, label_size).cuda()  # move all params to cuda
+    model.cuda()
     need_grad = lambda x: x.requires_grad
     params = model.parameters()
     optimizer = optim.Adam(
