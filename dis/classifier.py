@@ -76,7 +76,7 @@ class Classifier(nn.Module):
         self.emb_layer = emb_layer
         self.feature_dropout = feature_dropout
         self.deep_shallow = args.deep_shallow
-        self.layer_repr = args.layer_lr
+        # self.layer_repr = args.layer_lr
         if args.lstm:
             self.encoder = nn.LSTM(
                 emb_layer.n_d,
@@ -84,7 +84,6 @@ class Classifier(nn.Module):
                 args.layers,
                 dropout=args.dropout,
             )
-            d_out = args.d
         else:
             self.encoder = MF.SRU(
                 emb_layer.n_d,
@@ -94,8 +93,19 @@ class Classifier(nn.Module):
                 use_tanh=1,
                 bidirectional=True
             )
-            d_out = args.d
-        self.out_proj = nn.Linear(d_out, nclasses)
+        self.out_proj = nn.Linear(args.state_size, nclasses)
+
+        self.init_weights()
+        if not args.lstm:
+            self.encoder.set_bias(args.bias)
+
+    def init_weights(self):
+        val_range = (3.0 / self.n_d) ** 0.5
+        for p in self.parameters():
+            if p.dim() > 1:  # matrix
+                p.data.uniform_(-val_range, val_range)
+            else:
+                p.data.zero_()
 
     def forward(self, inputA, inputB):
         embA = self.emb_layer(inputA)  # this is where embed happens

@@ -176,8 +176,8 @@ def validate(model, q_valid, dev=False):
 
     for seqA_tokens, seqA_mask, seqB_tokens, \
         seqB_mask, labels in pair_iter(q_valid, args.batch_size, args.max_seq_len, args.max_seq_len):
-        seqA_tokens_var, seqB_tokens_var = Variable(seqA_tokens.T), Variable(seqB_tokens.T)
-        labels_var = Variable(labels)
+        seqA_tokens_var, seqB_tokens_var = Variable(torch.from_numpy(seqA_tokens.T)), Variable(torch.from_numpy(seqB_tokens.T))
+        # labels_var = Variable(torch.from_numpy(labels))
 
         logits = model(seqA_tokens_var, seqB_tokens_var)
 
@@ -212,7 +212,7 @@ def validate(model, q_valid, dev=False):
 
 def train(model, optimizer, criterion, q_train, q_valid, q_test):
     tic = time.time()
-    num_params = sum(map(lambda t: np.prod(t.size()), params))
+    num_params = sum(x.numel() for x in model.parameters() if x.requires_grad)
 
     toc = time.time()
     logging.info("Number of params: %d (retreival took %f secs)" % (num_params, toc - tic))
@@ -251,8 +251,8 @@ def train(model, optimizer, criterion, q_train, q_valid, q_test):
 
             # Note: must use seqA_tokens.T because it needs to be (seq_len, batch_size)
             # embed layer is called inside Model, so let's hope this gets to CUDA
-            seqA_tokens_var, seqB_tokens_var = Variable(seqA_tokens.T), Variable(seqB_tokens.T)
-            labels_var = Variable(labels)
+            seqA_tokens_var, seqB_tokens_var = Variable(torch.from_numpy(seqA_tokens.T)), Variable(torch.from_numpy(seqB_tokens.T))
+            labels_var = Variable(torch.from_numpy(labels), requires_grad=False)
 
             logits = model(seqA_tokens_var, seqB_tokens_var)
 
@@ -401,8 +401,8 @@ if __name__ == '__main__':
     label_tokens = dict_to_list(label_dict)
     logging.info("classifying markers: {}".format(label_tokens))
 
-    with open(os.path.join(args.run_dir, "args.json"), 'w') as fout:
-        json.dump(args.__args, fout)
+    # with open(os.path.join(args.run_dir, "args.json"), 'w') as fout:
+    #     json.dump(args, fout)
 
     # auto-adjust label size
     label_size = 14
