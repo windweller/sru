@@ -183,9 +183,9 @@ def validate(model, q_valid, dev=False):
         logits = model(seqA_tokens_var, seqB_tokens_var)
         # valid_cost = criterion(logits,labels_var).cpu().data.numpy()
 
-        logits = logits.cpu().data.numpy()  # move logits to numpy
-        preds = output.data.max(1)[1]
-        accu = np.mean(np.argmax(logits, axis=1) == labels)
+        logits_numpy = logits.cpu().data.numpy()  # move logits to numpy
+        preds = logits.data.max(1)[1]
+        accu = np.mean(np.argmax(logits_numpy, axis=1) == labels)
 
         labels_accu = get_multiclass_accuracy(preds, labels)
         if total_labels_accu is None:

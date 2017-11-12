@@ -133,7 +133,7 @@ class Classifier(nn.Module):
             a = torch.max(outputA, 0)[0].squeeze(0)
             b = torch.max(outputB, 0)[0].squeeze(0)
 
-        features = torch.cat((a, b, a - b, a * b), 1)
+        features = torch.cat((a, b, a - b, a * b, (a+b)/2.), 1)
         # (a + b) / 2. # took out subtraction since it's not in InferSent
 
         return self.out_proj(features)
