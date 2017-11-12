@@ -25,6 +25,9 @@ from torch.autograd import Variable
 import cuda_functional as MF
 from classifier import Classifier, EmbeddingLayer
 
+# TODO: 1. Check the saving script, make sure it saves!!! and saves epochs... (check cresta)
+# TODO: 2. Transfer data from Deep to Cresta
+
 parser = argparse.ArgumentParser(description='DIS training')
 parser.add_argument("--lstm", action='store_true', help="whether to use lstm")
 parser.add_argument("--dev", action='store_true', help="whether to only evaluate the model")
@@ -180,8 +183,9 @@ def validate(model, q_valid, dev=False):
         logits = model(seqA_tokens_var, seqB_tokens_var)
         # valid_cost = criterion(logits,labels_var).cpu().data.numpy()
 
-        preds = logits.cpu().data.numpy()  # may or may not be broken
-        accu = np.mean(np.argmax(preds, axis=1) == labels)
+        logits = logits.cpu().data.numpy()  # move logits to numpy
+        preds = output.data.max(1)[1]
+        accu = np.mean(np.argmax(logits, axis=1) == labels)
 
         labels_accu = get_multiclass_accuracy(preds, labels)
         if total_labels_accu is None:
