@@ -78,7 +78,6 @@ logging.basicConfig(format='[%(asctime)s] %(levelname)s: %(message)s',
                     datefmt='%m/%d/%Y %I:%M:%S %p', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-
 """
 Vocab-related config
 """
@@ -140,13 +139,14 @@ def pair_iter(q, batch_size, inp_len, query_len):
         batched_seq1, batched_seq2, batched_label = [], [], []
 
 
-def get_multiclass_accuracy(preds, labels):
+def get_multiclass_recall(preds, y_label):
+    # preds: (label_size), y_label; (label_size)
     label_cat = range(label_size)
     labels_accu = {}
 
     for la in label_cat:
         # for each label, we get the index of the correct labels
-        idx_of_cat = labels == la
+        idx_of_cat = y_label == la
         cat_preds = preds[idx_of_cat]
         if cat_preds.size != 0:
             accu = np.mean(cat_preds == la)
@@ -157,14 +157,32 @@ def get_multiclass_accuracy(preds, labels):
     return labels_accu
 
 
+def get_multiclass_prec(preds, y_label):
+    label_cat = range(label_size)
+    labels_accu = {}
+
+    for la in label_cat:
+        # for each label, we get the index of predictions
+        idx_of_cat = preds == la
+        cat_preds = y_label[idx_of_cat]  # ground truth
+        if cat_preds.size != 0:
+            accu = np.mean(cat_preds == la)
+            labels_accu[la] = [accu]
+        else:
+            labels_accu[la] = []
+
+    return labels_accu
+
 def cumulate_multiclass_accuracy(total_accu, labels_accu):
     for k, v in labels_accu.iteritems():
         total_accu[k].extend(v)
 
 
 def get_mean_multiclass_accuracy(total_accu):
+    new_dict = {}
     for k, v in total_accu.iteritems():
-        total_accu[k] = np.mean(total_accu[k])
+        new_dict[k] = np.mean(total_accu[k])
+    return new_dict
 
 
 def validate(model, q_valid, dev=False):
@@ -173,25 +191,30 @@ def validate(model, q_valid, dev=False):
 
     valid_costs, valid_accus = [], []
     valid_preds, valid_labels = [], []
-    total_labels_accu = None
+    total_labels_recall = None
+    total_labels_prec = None
 
     for seqA_tokens, seqA_mask, seqB_tokens, \
         seqB_mask, labels in pair_iter(q_valid, args.batch_size, args.max_seq_len, args.max_seq_len):
-        seqA_tokens_var, seqB_tokens_var = Variable(torch.from_numpy(seqA_tokens.T)).cuda(), Variable(torch.from_numpy(seqB_tokens.T)).cuda()
+        seqA_tokens_var, seqB_tokens_var = Variable(torch.from_numpy(seqA_tokens.T)).cuda(), Variable(
+            torch.from_numpy(seqB_tokens.T)).cuda()
         # labels_var = Variable(torch.from_numpy(labels).cuda(), requires_grad=False)
 
         logits = model(seqA_tokens_var, seqB_tokens_var)
         # valid_cost = criterion(logits,labels_var).cpu().data.numpy()
 
         logits_numpy = logits.cpu().data.numpy()  # move logits to numpy
-        preds = logits.data.max(1)[1]
+        preds = logits.data.max(1)[1].cpu()  # need to move to cpu?
         accu = np.mean(np.argmax(logits_numpy, axis=1) == labels)
 
-        labels_accu = get_multiclass_accuracy(preds, labels)
-        if total_labels_accu is None:
-            total_labels_accu = labels_accu
+        labels_recall = get_multiclass_recall(preds.numpy(), labels)
+        labels_prec = get_multiclass_prec(preds.numpy(), labels)
+        if total_labels_recall is None:
+            total_labels_recall = labels_recall
+            total_labels_prec = labels_prec
         else:
-            cumulate_multiclass_accuracy(total_labels_accu, labels_accu)
+            cumulate_multiclass_accuracy(total_labels_recall, labels_recall)
+            cumulate_multiclass_accuracy(total_labels_prec, labels_prec)
 
         valid_preds.extend(preds.tolist())
         valid_labels.extend(labels.tolist())
@@ -201,17 +224,25 @@ def validate(model, q_valid, dev=False):
     valid_accu = sum(valid_accus) / float(len(valid_accus))
     # valid_cost = sum(valid_costs) / float(len(valid_costs))
 
-    get_mean_multiclass_accuracy(total_labels_accu)
-    multiclass_accu_msg = ''
-    for k, v in total_labels_accu.iteritems():
-        multiclass_accu_msg += label_tokens[k] + ": " + str(v) + " "
+    mean_multi_recall = get_mean_multiclass_accuracy(total_labels_recall)
+    multiclass_recall_msg = 'Multiclass Recall - '
+    for k, v in mean_multi_recall.iteritems():
+        multiclass_recall_msg += label_tokens[k] + ": " + str(v) + " "
 
-    logger.info(multiclass_accu_msg)
+    logger.info(multiclass_recall_msg)
+
+    multiclass_prec_msg = 'Multiclass Precision - '
+    mean_multi_prec = get_mean_multiclass_accuracy(total_labels_prec)
+    for k, v in mean_multi_prec.iteritems():
+        multiclass_prec_msg += label_tokens[k] + ": " + str(v) + " "
+
+    logging.info(multiclass_prec_msg)
 
     if dev:
         return valid_accu, valid_preds, valid_labels  # valid_cost,
 
     return valid_accu  # valid_cost,
+
 
 def train(model, optimizer, criterion, q_train, q_valid, q_test):
     tic = time.time()
@@ -253,7 +284,8 @@ def train(model, optimizer, criterion, q_train, q_valid, q_test):
 
             # Note: must use seqA_tokens.T because it needs to be (seq_len, batch_size)
             # embed layer is called inside Model, so let's hope this gets to CUDA
-            seqA_tokens_var, seqB_tokens_var = Variable(torch.from_numpy(seqA_tokens.T)).cuda(), Variable(torch.from_numpy(seqB_tokens.T)).cuda()
+            seqA_tokens_var, seqB_tokens_var = Variable(torch.from_numpy(seqA_tokens.T)).cuda(), Variable(
+                torch.from_numpy(seqB_tokens.T)).cuda()
             labels_var = Variable(torch.from_numpy(labels).cuda(), requires_grad=False)
 
             logits = model(seqA_tokens_var, seqB_tokens_var)
@@ -322,7 +354,7 @@ def train(model, optimizer, criterion, q_train, q_valid, q_test):
         valid_accu = validate(model, q_valid, args.dev)  # valid_cost,
 
         logger.info("Epoch %d Validation accu: %f epoch time: %f" % (epoch, valid_accu,
-                                                                      epoch_toc - epoch_tic))
+                                                                     epoch_toc - epoch_tic))
 
         # only do accuracy
         if len(valid_accus) >= 1 and valid_accu < max(valid_accus):
@@ -332,7 +364,7 @@ def train(model, optimizer, criterion, q_train, q_valid, q_test):
 
             # implement learning rate decay for SGD and ADAM, if validation is too high
             optimizer.param_groups[0]['lr'] = optimizer.param_groups[0]['lr'] * args.lr_decay if epoch > 1 \
-                                              else optimizer.param_groups[0]['lr']
+                else optimizer.param_groups[0]['lr']
 
             logger.info('Annealing learning rate at epoch {} to {}'.format(epoch, optimizer.param_groups[0]['lr']))
             triggered_stop += 1
