@@ -32,7 +32,7 @@ parser = argparse.ArgumentParser(description='DIS training')
 parser.add_argument("--lstm", action='store_true', help="whether to use lstm")
 parser.add_argument("--dev", action='store_true', help="whether to only evaluate the model")
 parser.add_argument("--deep_shallow", action='store_true', help="whether to use all layers to construct representation")
-parser.add_argument("--dataset", type=str, default="mr", help="which dataset")
+parser.add_argument("--dataset", type=str, default="books", help="which dataset")
 # parser.add_argument("--path", type=str, required=True, help="path to corpus directory")
 parser.add_argument("--batch_size", "--batch", type=int, default=200)
 parser.add_argument("--seed", type=int, default=123)
@@ -56,7 +56,7 @@ parser.add_argument("--max_norm", type=float, default=5., help="max norm (grad c
 parser.add_argument("--exclude", default="", help="discourse markers excluded", type=str)
 parser.add_argument("--include", default="", help="discourse markers included", type=str)
 parser.add_argument("--opt", default="adam", help="adam/sgd", type=str)  # not implemented yet
-parser.add_argument("--bias", type=float, default=-3, help="intial bias of highway gates")
+parser.add_argument("--bias", type=float, default=0, help="intial bias of highway gates")
 
 args, _ = parser.parse_known_args()
 
@@ -363,11 +363,12 @@ def train(model, optimizer, criterion, q_train, q_valid, q_test):
             # session.run(self.learning_rate_decay_op)
 
             # implement learning rate decay for SGD and ADAM, if validation is too high
-            optimizer.param_groups[0]['lr'] = optimizer.param_groups[0]['lr'] * args.lr_decay if epoch > 1 \
-                else optimizer.param_groups[0]['lr']
+            if epoch > 1:
+                for param_group in optimizer.param_groups:
+                    param_group['lr'] = param_group['lr'] * args.lr_decay
 
-            logger.info('Annealing learning rate at epoch {} to {}'.format(epoch, optimizer.param_groups[0]['lr']))
-            triggered_stop += 1
+                    logger.info('Annealing learning rate at epoch {} to {}'.format(epoch, optimizer.param_groups[0]['lr']))
+                    triggered_stop += 1
 
             logger.info("validation cost trigger: restore model from epoch %d" % best_epoch)
             del model
@@ -456,10 +457,16 @@ if __name__ == '__main__':
     model.cuda()
     need_grad = lambda x: x.requires_grad
     params = model.parameters()
-    optimizer = optim.Adam(
-        filter(need_grad, params),
-        lr=args.lr
-    )
+    if args.opt == "adam":
+        optimizer = optim.Adam(
+            filter(need_grad, params),
+            lr=args.lr
+        )
+    else:
+        optimizer = optim.SGD(
+            filter(need_grad, params),
+            lr=args.lr
+        )
 
     with open(pkl_test_name, "rb") as f:
         q_test = pickle.load(f)
