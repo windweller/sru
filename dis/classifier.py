@@ -115,11 +115,13 @@ class Classifier(nn.Module):
         embB = self.emb_layer(inputB)
         embB = self.drop(embB)
 
+        # TODO: bugggggs!!!! need to pad the sequence to stop BPTT
         outputA, hiddenA = self.encoder(embA)  # outputA is a list of (batch_size, hidden_dim), length is time
         outputB, hiddenB = self.encoder(embB)
 
         # bidirectional here is concatenation
         # might want to make it addition?
+        # TODO: make sure this part is correct...
         if self.deep_shallow:
             # after map it's [batch_size, hidden_dim] for each layer, we concatenate them
             a = torch.cat(map(lambda o: torch.max(o, 0)[0].squeeze(0), outputA), 1)

@@ -351,7 +351,7 @@ def train(model, optimizer, criterion, q_train, q_valid, q_test):
         # checkpoint_path = os.path.join(save_train_dirs, "dis.ckpt")
 
         ## Validate
-        valid_accu = validate(model, q_valid, args.dev)  # valid_cost,
+        valid_accu = validate(model, q_valid)  # valid_cost,
 
         logger.info("Epoch %d Validation accu: %f epoch time: %f" % (epoch, valid_accu,
                                                                      epoch_toc - epoch_tic))
@@ -489,8 +489,10 @@ if __name__ == '__main__':
 
     # after training, we test this thing
     ## Test
-    test_cost, test_accu = validate(model, q_test)
-    logging.info("Final test cost: %f test accu: %f" % (test_cost, test_accu))
+    test_accu = validate(model, q_test)
+    logging.info("Final test accu: %f" % (test_accu))
+
+    # TODO: have the dev mode to generate confusion matrix
 
     # TODO: implement confusion matrix here
     # logging.info("Saving confusion matrix csv")
